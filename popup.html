@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Squirro</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="container">
+   
+    <div class="top-bar">
+       <h3>Squirro Hub</h3>
+      <button id="darkModeBtn" class="icon-btn" title="Toggle dark mode">🌙</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="notes">📝 Notes</button>
+      <button class="tab-btn" data-tab="calendar">📅 Calendar</button>
+      <button class="tab-btn" data-tab="tasks">⚡ Tasks</button>
+    </div>
+
+    <div id="notes" class="tab-panel active">
+      <div class="panel-header">
+        <h2>Notes</h2>
+        <button id="newNoteBtn" class="round-btn" title="New note">+</button>
+      </div>
+
+      <div class="search-row">
+        <input id="noteSearchInput" type="text" placeholder="🔍 Search notes..." />
+      </div>
+
+      <div class="folder-row">
+        <select id="noteFolderSelect"></select>
+        <button id="renameNoteFolderBtn" class="icon-btn" title="Rename folder">✎</button>
+        <button id="addNoteFolderBtn" class="icon-btn" title="New folder">📁+</button>
+      </div>
+      <div id="newNoteFolderWrap" class="new-folder-input hidden">
+        <input id="newNoteFolderInput" type="text" placeholder="Folder name" />
+        <button id="confirmNoteFolderBtn" class="small-btn" title="Add">✓</button>
+        <button id="cancelNoteFolderBtn" class="small-btn muted" title="Cancel">✕</button>
+      </div>
+      <div id="renameNoteFolderWrap" class="new-folder-input hidden">
+        <input id="renameNoteFolderInput" type="text" placeholder="New folder name" />
+        <button id="confirmRenameNoteFolderBtn" class="small-btn" title="Save">✓</button>
+        <button id="cancelRenameNoteFolderBtn" class="small-btn muted" title="Cancel">✕</button>
+      </div>
+
+      <div id="notesList" class="notes-list"></div>
+
+      <div id="noteEditor" class="editor hidden">
+        <div id="noteTimestamp" class="note-timestamp"></div>
+        <textarea id="noteText" placeholder="Type your note here..."></textarea>
+
+        <div id="noteImageWrap" class="note-image-wrap hidden">
+          <img id="noteImage" alt="Attached screenshot" />
+          <div class="image-actions">
+            <button id="copyImageBtn" class="icon-btn" title="Copy screenshot">📋</button>
+            <button id="removeImageBtn" class="icon-btn" title="Remove image">🗑️</button>
+          </div>
+        </div>
+
+        <div class="editor-actions">
+          <div class="left-actions">
+            <button id="captureBtn" class="icon-btn" title="Capture full page">📷</button>
+            <button id="cropCaptureBtn" class="icon-btn" title="Capture &amp; crop a screenshot">✂️</button>
+            <button id="exportNoteBtn" class="icon-btn" title="Export note as text">📤</button>
+          </div>
+          <div class="right-actions">
+            <button id="backBtn" class="icon-btn" title="Back">←</button>
+            <button id="deleteNoteBtn" class="icon-btn" title="Delete">🗑️</button>
+          </div>
+        </div>
+        <div id="captureStatus" class="status"></div>
+      </div>
+    </div>
+
+    <div id="calendar" class="tab-panel">
+      <div class="panel-header">
+        <h2>Calendar</h2>
+        <button id="refreshCalBtn" class="round-btn" title="Refresh">⟳</button>
+      </div>
+
+      <div id="calSignedOut" class="cal-state">
+        <p>Paste your Google Calendar's secret iCal link to see today's and upcoming events.</p>
+        <input id="icsUrlInput" type="text" class="ics-input" placeholder="https://calendar.google.com/calendar/ical/..." />
+        <button id="connectCalBtn" class="primary-btn">Connect</button>
+        <p class="ics-help">Get this from Google Calendar (web) → Settings → your calendar → "Integrate calendar" → "Secret address in iCal format"</p>
+      </div>
+
+      <div id="calSignedIn" class="cal-state hidden">
+        <div id="calEventsList" class="events-list"></div>
+        <button id="disconnectCalBtn" class="small-btn muted">Disconnect</button>
+      </div>
+    </div>
+
+    <div id="tasks" class="tab-panel">
+      <div class="panel-header">
+        <h2>Tasks</h2>
+      </div>
+
+      <div class="task-filter-row">
+        <button class="filter-btn active" data-filter="all">All</button>
+        <button class="filter-btn" data-filter="active">Active</button>
+        <button class="filter-btn" data-filter="completed">Completed</button>
+      </div>
+
+      <div class="folder-row">
+        <select id="taskFolderSelect"></select>
+        <button id="renameTaskFolderBtn" class="icon-btn" title="Rename folder">✎</button>
+        <button id="addTaskFolderBtn" class="icon-btn" title="New folder">📁+</button>
+      </div>
+      <div id="newTaskFolderWrap" class="new-folder-input hidden">
+        <input id="newTaskFolderInput" type="text" placeholder="Folder name" />
+        <button id="confirmTaskFolderBtn" class="small-btn" title="Add">✓</button>
+        <button id="cancelTaskFolderBtn" class="small-btn muted" title="Cancel">✕</button>
+      </div>
+      <div id="renameTaskFolderWrap" class="new-folder-input hidden">
+        <input id="renameTaskFolderInput" type="text" placeholder="New folder name" />
+        <button id="confirmRenameTaskFolderBtn" class="small-btn" title="Save">✓</button>
+        <button id="cancelRenameTaskFolderBtn" class="small-btn muted" title="Cancel">✕</button>
+      </div>
+
+      <div class="task-input-row">
+        <input id="taskInput" type="text" placeholder="Add a task..." />
+        <button id="addTaskBtn" class="round-btn">+</button>
+      </div>
+
+      <div id="tasksList" class="tasks-list"></div>
+    </div>
+
+    <div id="globalStatus" class="global-status"></div>
+
+    <div class="footer">Created by Mac Story</div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

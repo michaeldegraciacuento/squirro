@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Crop Screenshot</title>
+  <link rel="stylesheet" href="crop.css" />
+</head>
+<body>
+  <div class="toolbar">
+    <span class="hint">Drag on the image to select the area you want to keep</span>
+    <div class="actions">
+      <button id="resetSelectionBtn" class="small-btn muted">Reset</button>
+      <button id="cancelCropBtn" class="small-btn muted">Cancel</button>
+      <button id="confirmCropBtn" class="primary-btn" disabled>Save crop</button>
+    </div>
+  </div>
+  <div id="imageStage" class="image-stage">
+    <img id="cropImage" alt="Screenshot to crop" draggable="false" />
+    <div id="selectionBox" class="selection-box hidden"></div>
+  </div>
+  <script src="crop.js"></script>
+</body>
+</html>
