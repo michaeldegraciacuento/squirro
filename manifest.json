@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Squirro",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "Notes with screenshots, Google Calendar view, and a task list — all in one popup.",
   "icons": {
     "16": "icons/icon16.png",

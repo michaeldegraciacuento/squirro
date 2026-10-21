@@ -25,10 +25,13 @@ function loadImage(src) {
   });
 }
 
+let globalStatusTimeout = null;
+
 function showGlobalStatus(msg, ms = 1500) {
   const el = document.getElementById('globalStatus');
   el.textContent = msg;
-  setTimeout(() => {
+  clearTimeout(globalStatusTimeout);
+  globalStatusTimeout = setTimeout(() => {
     el.textContent = '';
   }, ms);
 }
@@ -73,6 +76,48 @@ darkModeBtn.addEventListener('click', () => {
     chrome.storage.local.set({ darkMode: newVal }, () => applyDarkMode(newVal));
   });
 });
+
+/* ---------------------------------------------------------
+   POP-OUT WINDOW
+--------------------------------------------------------- */
+const isPopout = new URLSearchParams(location.search).has('popout');
+const popOutBtn = document.getElementById('popOutBtn');
+const POPOUT_URL = chrome.runtime.getURL('popup.html?popout=1');
+
+if (isPopout) {
+  document.body.classList.add('popout');
+  popOutBtn.classList.add('hidden');
+}
+
+popOutBtn.addEventListener('click', async () => {
+  flushPendingSaves();
+  try {
+    // Reuse an already-open pop-out instead of stacking duplicates
+    const windows = await chrome.windows.getAll({ populate: true, windowTypes: ['popup'] });
+    const existing = windows.find((w) => (w.tabs || []).some((t) => t.url === POPOUT_URL));
+    if (existing) {
+      await chrome.windows.update(existing.id, { focused: true });
+    } else {
+      await chrome.windows.create({ url: POPOUT_URL, type: 'popup', width: 420, height: 680 });
+    }
+    window.close();
+  } catch (err) {
+    console.error('Pop-out failed:', err);
+    showGlobalStatus('Could not open a new window');
+  }
+});
+
+// In the pop-out, "current window" is the pop-out itself, so screenshots
+// must target the active tab of the last focused normal browser window.
+async function getTargetTab() {
+  if (!isPopout) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    return tab;
+  }
+  const win = await chrome.windows.getLastFocused({ windowTypes: ['normal'] });
+  const [tab] = await chrome.tabs.query({ active: true, windowId: win.id });
+  return tab;
+}
 
 /* ---------------------------------------------------------
    FOLDERS (shared pattern for notes + tasks, stored separately)
@@ -199,6 +244,27 @@ renameNoteFolderInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') confirmRenameNoteFolderBtn.click();
 });
 
+document.getElementById('deleteNoteFolderBtn').addEventListener('click', () => {
+  if (selectedNoteFolder === 'all' || selectedNoteFolder === 'uncat') {
+    showGlobalStatus("Can't delete that");
+    return;
+  }
+  const folderId = selectedNoteFolder;
+  noteFolders = noteFolders.filter((f) => f.id !== folderId);
+  notes.forEach((n) => {
+    if (n.folderId === folderId) n.folderId = 'uncat';
+  });
+  selectedNoteFolder = 'all';
+  renameNoteFolderWrap.classList.add('hidden');
+  saveFolders(() => {
+    saveNotes(() => {
+      populateFolderSelect(noteFolderSelect, noteFolders, selectedNoteFolder);
+      renderNotesList();
+      showGlobalStatus('Folder deleted — notes moved to Uncategorized', 2500);
+    });
+  });
+});
+
 /* ---- Task folder UI ---- */
 const taskFolderSelect = document.getElementById('taskFolderSelect');
 const addTaskFolderBtn = document.getElementById('addTaskFolderBtn');
@@ -277,6 +343,27 @@ confirmRenameTaskFolderBtn.addEventListener('click', () => {
 
 renameTaskFolderInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') confirmRenameTaskFolderBtn.click();
+});
+
+document.getElementById('deleteTaskFolderBtn').addEventListener('click', () => {
+  if (selectedTaskFolder === 'all' || selectedTaskFolder === 'uncat') {
+    showGlobalStatus("Can't delete that");
+    return;
+  }
+  const folderId = selectedTaskFolder;
+  taskFolders = taskFolders.filter((f) => f.id !== folderId);
+  tasks.forEach((t) => {
+    if (t.folderId === folderId) t.folderId = 'uncat';
+  });
+  selectedTaskFolder = 'all';
+  renameTaskFolderWrap.classList.add('hidden');
+  saveFolders(() => {
+    saveTasks(() => {
+      populateFolderSelect(taskFolderSelect, taskFolders, selectedTaskFolder);
+      renderTasks();
+      showGlobalStatus('Folder deleted — tasks moved to Uncategorized', 2500);
+    });
+  });
 });
 
 /* ---------------------------------------------------------
@@ -409,17 +496,48 @@ function openNote(id) {
   }
 
   notesListEl.classList.add('hidden');
-  document.querySelector('#notes .folder-row').classList.add('hidden');
+  setNoteListControlsHidden(true);
   noteEditorEl.classList.remove('hidden');
   newNoteBtn.classList.add('hidden');
   noteTextEl.focus();
 }
 
+function setNoteListControlsHidden(hidden) {
+  document.querySelector('#notes .search-row').classList.toggle('hidden', hidden);
+  document.querySelector('#notes .folder-row').classList.toggle('hidden', hidden);
+  if (hidden) {
+    newNoteFolderWrap.classList.add('hidden');
+    renameNoteFolderWrap.classList.add('hidden');
+  }
+}
+
+// Write the textarea into the note right away (instead of waiting for the debounce)
+function flushNoteSave() {
+  if (!saveTimeout) return;
+  clearTimeout(saveTimeout);
+  saveTimeout = null;
+  const note = notes.find((n) => n.id === currentNoteId);
+  if (note && note.text !== noteTextEl.value) {
+    note.text = noteTextEl.value;
+    note.updatedAt = Date.now();
+    saveNotes();
+  }
+}
+
 function closeNoteEditor() {
+  flushNoteSave();
+
+  // Don't leave behind blank notes that were opened and never written in
+  const note = notes.find((n) => n.id === currentNoteId);
+  if (note && !note.text.trim() && !note.image) {
+    notes = notes.filter((n) => n.id !== note.id);
+    saveNotes();
+  }
+
   currentNoteId = null;
   noteEditorEl.classList.add('hidden');
   notesListEl.classList.remove('hidden');
-  document.querySelector('#notes .folder-row').classList.remove('hidden');
+  setNoteListControlsHidden(false);
   newNoteBtn.classList.remove('hidden');
   renderNotesList();
 }
@@ -438,6 +556,8 @@ backBtn.addEventListener('click', () => {
 
 deleteNoteBtn.addEventListener('click', () => {
   if (!currentNoteId) return;
+  clearTimeout(saveTimeout);
+  saveTimeout = null;
   notes = notes.filter((n) => n.id !== currentNoteId);
   saveNotes(() => {
     showGlobalStatus('Note deleted');
@@ -464,8 +584,8 @@ copyImageBtn.addEventListener('click', async () => {
   if (!note || !note.image) return;
 
   try {
-    // Chrome's clipboard API only accepts PNG for images (not JPEG),
-    // so redraw the stored (JPEG) screenshot onto a canvas and export as PNG.
+    // Chrome's clipboard API only accepts PNG for images, so redraw the
+    // stored screenshot (older notes may hold JPEGs) onto a canvas as PNG.
     const img = await loadImage(note.image);
     const canvas = document.createElement('canvas');
     canvas.width = img.width;
@@ -489,6 +609,7 @@ exportNoteBtn.addEventListener('click', () => {
   if (!currentNoteId) return;
   const note = notes.find((n) => n.id === currentNoteId);
   if (!note) return;
+  flushNoteSave();
 
   const firstLine = note.text.trim().split('\n')[0] || 'note';
   const safeName = firstLine.replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 40) || 'note';
@@ -509,6 +630,7 @@ noteTextEl.addEventListener('input', () => {
   if (!currentNoteId) return;
   clearTimeout(saveTimeout);
   saveTimeout = setTimeout(() => {
+    saveTimeout = null;
     const note = notes.find((n) => n.id === currentNoteId);
     if (note) {
       note.text = noteTextEl.value;
@@ -521,7 +643,7 @@ noteTextEl.addEventListener('input', () => {
   }, 300);
 });
 
-/* ---- Full-page screenshot capture + compression ---- */
+/* ---- Full-page screenshot capture ---- */
 
 async function getPageMetrics(tabId) {
   const [{ result }] = await chrome.scripting.executeScript({
@@ -536,60 +658,52 @@ async function getPageMetrics(tabId) {
   return result;
 }
 
+// Scrolls and returns where the page actually ended up (it may not be able to reach y)
 async function scrollPageTo(tabId, y) {
-  await chrome.scripting.executeScript({
+  const [{ result }] = await chrome.scripting.executeScript({
     target: { tabId },
-    func: (yy) => window.scrollTo(0, yy),
+    func: (yy) => {
+      window.scrollTo(0, yy);
+      return window.scrollY;
+    },
     args: [y],
   });
+  return result;
 }
 
 async function captureFullPage(tabId, windowId) {
   const metrics = await getPageMetrics(tabId);
   const { scrollHeight, viewportHeight, viewportWidth, originalScrollY } = metrics;
 
-  const cappedHeight = Math.min(scrollHeight, viewportHeight * 15);
-  const totalShots = Math.max(1, Math.ceil(cappedHeight / viewportHeight));
+  const cappedHeight = Math.max(viewportHeight, Math.min(scrollHeight, viewportHeight * 15));
+  const totalShots = Math.ceil(cappedHeight / viewportHeight);
 
   const shots = [];
   for (let i = 0; i < totalShots; i++) {
-    const y = Math.min(i * viewportHeight, cappedHeight - viewportHeight);
-    await scrollPageTo(tabId, y);
-    await new Promise((r) => setTimeout(r, 400));
+    const target = Math.min(i * viewportHeight, cappedHeight - viewportHeight);
+    const y = await scrollPageTo(tabId, target);
+    if (shots.length && y <= shots[shots.length - 1].y) break; // page stopped scrolling
+    // captureVisibleTab is rate-limited to ~2 calls/sec
+    await new Promise((r) => setTimeout(r, 550));
     const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: 'png' });
-    shots.push(dataUrl);
+    shots.push({ y, dataUrl });
   }
 
   await scrollPageTo(tabId, originalScrollY);
 
+  // Screenshots are in device pixels (e.g. 1.25x/2x on high-DPI screens)
+  const images = await Promise.all(shots.map((s) => loadImage(s.dataUrl)));
+  const scale = images[0].width / viewportWidth;
+  const contentHeight = Math.min(shots[shots.length - 1].y + viewportHeight, cappedHeight);
+
   const canvas = document.createElement('canvas');
-  canvas.width = viewportWidth;
-  canvas.height = cappedHeight;
+  canvas.width = images[0].width;
+  canvas.height = Math.round(contentHeight * scale);
   const ctx = canvas.getContext('2d');
 
-  for (let i = 0; i < shots.length; i++) {
-    const img = await loadImage(shots[i]);
-    ctx.drawImage(img, 0, i * viewportHeight);
-  }
+  images.forEach((img, i) => ctx.drawImage(img, 0, Math.round(shots[i].y * scale)));
 
   return canvas.toDataURL('image/png');
-}
-
-async function compressImage(dataUrl, maxWidth = 800, quality = 0.7) {
-  const img = await loadImage(dataUrl);
-  let { width, height } = img;
-  if (width > maxWidth) {
-    height = Math.round((height * maxWidth) / width);
-    width = maxWidth;
-  }
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, width, height);
-  ctx.drawImage(img, 0, 0, width, height);
-  return canvas.toDataURL('image/jpeg', quality);
 }
 
 captureBtn.addEventListener('click', async () => {
@@ -598,7 +712,7 @@ captureBtn.addEventListener('click', async () => {
   captureBtn.disabled = true;
 
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getTargetTab();
 
     let rawDataUrl;
     try {
@@ -634,7 +748,7 @@ cropCaptureBtn.addEventListener('click', async () => {
   cropCaptureBtn.disabled = true;
 
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getTargetTab();
     const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
 
     await new Promise((resolve) => {
@@ -680,69 +794,6 @@ function saveIcsUrl(url) {
   });
 }
 
-// Unfold RFC5545 folded lines (continuation lines start with a space/tab)
-function unfoldICS(text) {
-  return text.replace(/\r\n[ \t]/g, '').replace(/\n[ \t]/g, '');
-}
-
-function parseICSDate(value) {
-  if (/^\d{8}$/.test(value)) {
-    const y = value.slice(0, 4);
-    const m = value.slice(4, 6);
-    const d = value.slice(6, 8);
-    return { date: new Date(`${y}-${m}-${d}T00:00:00`), allDay: true };
-  }
-  const m = value.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z)?$/);
-  if (m) {
-    const [, y, mo, d, h, mi, s, z] = m;
-    const iso = `${y}-${mo}-${d}T${h}:${mi}:${s}${z ? 'Z' : ''}`;
-    return { date: new Date(iso), allDay: false };
-  }
-  return { date: new Date(value), allDay: false };
-}
-
-function parseICS(text) {
-  const lines = unfoldICS(text).split(/\r\n|\n|\r/);
-  const events = [];
-  let current = null;
-
-  for (const line of lines) {
-    if (line === 'BEGIN:VEVENT') {
-      current = {};
-    } else if (line === 'END:VEVENT') {
-      if (current && current.startRaw) events.push(current);
-      current = null;
-    } else if (current) {
-      const idx = line.indexOf(':');
-      if (idx === -1) continue;
-      const keyPart = line.substring(0, idx);
-      const value = line.substring(idx + 1);
-      const key = keyPart.split(';')[0];
-
-      if (key === 'SUMMARY') {
-        current.summary = value.replace(/\\,/g, ',').replace(/\\n/gi, ' ').replace(/\\\\/g, '\\');
-      } else if (key === 'DTSTART') {
-        current.startRaw = value;
-      } else if (key === 'DTEND') {
-        current.endRaw = value;
-      } else if (key === 'UID') {
-        current.uid = value;
-      }
-    }
-  }
-
-  return events.map((e) => {
-    const parsed = parseICSDate(e.startRaw);
-    const endParsed = e.endRaw ? parseICSDate(e.endRaw) : null;
-    const end = endParsed
-      ? endParsed.date
-      : parsed.allDay
-      ? new Date(parsed.date.getTime() + 24 * 60 * 60 * 1000)
-      : parsed.date;
-    return { summary: e.summary || '(no title)', start: parsed.date, end, allDay: parsed.allDay, uid: e.uid || null };
-  });
-}
-
 // The secret ICS link looks like .../calendar/ical/<calendarId>/private-.../basic.ics
 function extractCalendarId(icsUrl) {
   const match = icsUrl.match(/\/ical\/([^/]+)\/private/);
@@ -754,11 +805,22 @@ function extractCalendarId(icsUrl) {
   }
 }
 
+// Recurring instances are addressed as "<eventId>_<original start>",
+// e.g. abc123_20261021T130000Z (timed) or abc123_20261021 (all-day).
+function instanceSuffix(event) {
+  const d = new Date(event.instanceOf);
+  if (event.allDay) {
+    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  }
+  return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+}
+
 // Google Calendar's event deep-link is the base64 of "<eventId> <calendarId>".
 // Falls back to that day's view if we can't build a precise event link.
 function buildGoogleCalendarUrl(event, calendarId) {
   if (event.uid && calendarId) {
-    const eventId = event.uid.split('@')[0];
+    let eventId = event.uid.split('@')[0];
+    if (event.instanceOf != null) eventId += `_${instanceSuffix(event)}`;
     try {
       const eid = btoa(`${eventId} ${calendarId}`).replace(/=+$/, '');
       return `https://calendar.google.com/calendar/event?eid=${eid}`;
@@ -773,22 +835,28 @@ function buildGoogleCalendarUrl(event, calendarId) {
   return `https://calendar.google.com/calendar/r/day/${y}/${m}/${day}`;
 }
 
+// Returns raw VEVENTs (see ics.js); expand them with expandEvents()
 async function fetchICSEvents(icsUrl) {
-  const res = await fetch(icsUrl);
+  const res = await fetch(icsUrl, { cache: 'no-store' });
   if (!res.ok) throw new Error(`iCal fetch failed: ${res.status}`);
   const text = await res.text();
+  if (!text.includes('BEGIN:VCALENDAR')) throw new Error('Not an iCal feed');
   return parseICS(text);
 }
 
 function formatEventTime(event) {
-  if (event.allDay) return 'All day';
-  return event.start.toLocaleString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  const dayOpts = { weekday: 'short', month: 'short', day: 'numeric' };
+  const timeOpts = { hour: 'numeric', minute: '2-digit' };
+  const day = event.start.toLocaleDateString(undefined, dayOpts);
+  if (event.allDay) return `${day} · All day`;
+
+  const start = `${day}, ${event.start.toLocaleTimeString(undefined, timeOpts)}`;
+  if (event.end <= event.start) return start;
+  const sameDay = event.end.toDateString() === event.start.toDateString();
+  const end = sameDay
+    ? event.end.toLocaleTimeString(undefined, timeOpts)
+    : event.end.toLocaleString(undefined, { ...dayOpts, ...timeOpts });
+  return `${start} – ${end}`;
 }
 
 function isEventDone(event) {
@@ -832,6 +900,13 @@ function renderEvents(events, calendarId) {
     item.appendChild(time);
     item.appendChild(titleRow);
 
+    if (event.location) {
+      const location = document.createElement('div');
+      location.className = 'event-location';
+      location.textContent = `📍 ${event.location}`;
+      item.appendChild(location);
+    }
+
     item.addEventListener('click', () => {
       chrome.tabs.create({ url: buildGoogleCalendarUrl(event, calendarId) });
     });
@@ -849,17 +924,15 @@ async function refreshCalendar() {
   }
 
   try {
-    const allEvents = await fetchICSEvents(icsUrl);
+    const rawEvents = await fetchICSEvents(icsUrl);
 
     const rangeStart = new Date();
     rangeStart.setHours(0, 0, 0, 0);
     const rangeEnd = new Date();
     rangeEnd.setDate(rangeEnd.getDate() + 14);
 
-    const upcoming = allEvents
-      .filter((e) => e.start >= rangeStart && e.start <= rangeEnd)
-      .sort((a, b) => a.start - b.start)
-      .slice(0, 20);
+    // Includes recurring occurrences and events still running from before today
+    const upcoming = expandEvents(rawEvents, rangeStart, rangeEnd).slice(0, 20);
 
     calSignedOut.classList.add('hidden');
     calSignedIn.classList.remove('hidden');
@@ -911,6 +984,7 @@ const filterButtons = document.querySelectorAll('.filter-btn');
 let tasks = [];
 let expandedTaskIds = new Set(); // in-memory only, not persisted
 let taskSaveTimeouts = {};
+let pendingTaskSaves = {}; // task id -> commit fn, for flushing on close
 let taskFilter = 'all';
 
 filterButtons.forEach((btn) => {
@@ -1100,19 +1174,25 @@ function renderTasks() {
 
     function scheduleTaskSave() {
       clearTimeout(taskSaveTimeouts[task.id]);
-      taskSaveTimeouts[task.id] = setTimeout(() => {
-        task.text = titleInput.value;
-        task.description = descInput.value;
-        task.dueDate = dueDateInput.value || null;
-        task.priority = priorityInput.value === 'none' ? null : priorityInput.value;
-        task.updatedAt = Date.now();
-        saveTasks(() => {
-          panelTime.textContent = `Updated: ${formatTimestamp(task.updatedAt)}`;
-          text.textContent = task.text;
-          time.textContent = formatTimestamp(task.updatedAt);
-          showGlobalStatus('Saved');
-        });
-      }, 300);
+      pendingTaskSaves[task.id] = commitTaskSave;
+      taskSaveTimeouts[task.id] = setTimeout(commitTaskSave, 300);
+    }
+
+    function commitTaskSave() {
+      clearTimeout(taskSaveTimeouts[task.id]);
+      delete pendingTaskSaves[task.id];
+      if (!tasks.includes(task)) return; // deleted (or replaced by a sync) meanwhile
+      task.text = titleInput.value.trim() || task.text; // never blank out the title
+      task.description = descInput.value;
+      task.dueDate = dueDateInput.value || null;
+      task.priority = priorityInput.value === 'none' ? null : priorityInput.value;
+      task.updatedAt = Date.now();
+      saveTasks(() => {
+        panelTime.textContent = `Updated: ${formatTimestamp(task.updatedAt)}`;
+        text.textContent = task.text;
+        time.textContent = formatTimestamp(task.updatedAt);
+        showGlobalStatus('Saved');
+      });
     }
 
     titleInput.addEventListener('input', scheduleTaskSave);
@@ -1171,6 +1251,17 @@ taskInput.addEventListener('keydown', (e) => {
 /* ---------------------------------------------------------
    INIT
 --------------------------------------------------------- */
+function flushPendingSaves() {
+  flushNoteSave();
+  Object.values(pendingTaskSaves).forEach((commit) => commit());
+}
+
+// Don't lose the last keystrokes when the popup/window closes mid-debounce
+window.addEventListener('pagehide', flushPendingSaves);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushPendingSaves();
+});
+
 document.addEventListener('DOMContentLoaded', () => {
   loadFolders(() => {
     populateFolderSelect(noteFolderSelect, noteFolders, selectedNoteFolder);
@@ -1197,22 +1288,68 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-// Keep this popup in sync if notes change in storage while it's open
-// (e.g. a crop saved from the separate crop.html window).
+// Keep this window in sync when storage changes elsewhere — e.g. a crop saved
+// from crop.html, or edits made in the pop-out while the toolbar popup is open.
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== 'local' || !changes.notes) return;
-  notes = changes.notes.newValue || [];
+  if (area !== 'local') return;
 
-  if (currentNoteId) {
-    const note = notes.find((n) => n.id === currentNoteId);
-    if (note && note.image) {
-      noteImageEl.src = note.image;
-      noteImageWrap.classList.remove('hidden');
-    } else if (note) {
-      noteImageEl.src = '';
-      noteImageWrap.classList.add('hidden');
+  if (changes.darkMode) applyDarkMode(!!changes.darkMode.newValue);
+
+  if (changes.noteFolders || changes.taskFolders) {
+    if (changes.noteFolders) noteFolders = changes.noteFolders.newValue || [];
+    if (changes.taskFolders) taskFolders = changes.taskFolders.newValue || [];
+    if (!['all', 'uncat'].includes(selectedNoteFolder) && !noteFolders.some((f) => f.id === selectedNoteFolder)) {
+      selectedNoteFolder = 'all';
     }
-  } else {
+    if (!['all', 'uncat'].includes(selectedTaskFolder) && !taskFolders.some((f) => f.id === selectedTaskFolder)) {
+      selectedTaskFolder = 'all';
+    }
+    populateFolderSelect(noteFolderSelect, noteFolders, selectedNoteFolder);
+    populateFolderSelect(taskFolderSelect, taskFolders, selectedTaskFolder);
+  }
+
+  if (changes.tasks) {
+    const next = changes.tasks.newValue || [];
+    // Skip our own writes so open edit panels don't lose focus mid-typing
+    if (JSON.stringify(next) !== JSON.stringify(tasks)) {
+      tasks = next;
+      renderTasks();
+    }
+  } else if (changes.taskFolders) {
+    renderTasks();
+  }
+
+  if (changes.icsUrl && changes.icsUrl.newValue !== changes.icsUrl.oldValue) {
+    icsUrlInput.value = changes.icsUrl.newValue || '';
+    refreshCalendar();
+  }
+
+  if (changes.notes) {
+    notes = changes.notes.newValue || [];
+
+    if (currentNoteId) {
+      const note = notes.find((n) => n.id === currentNoteId);
+      if (!note) {
+        // Deleted in another window
+        clearTimeout(saveTimeout);
+        saveTimeout = null;
+        closeNoteEditor();
+        return;
+      }
+      if (note.image) {
+        noteImageEl.src = note.image;
+        noteImageWrap.classList.remove('hidden');
+      } else {
+        noteImageEl.src = '';
+        noteImageWrap.classList.add('hidden');
+      }
+      if (!saveTimeout && document.activeElement !== noteTextEl && note.text !== noteTextEl.value) {
+        noteTextEl.value = note.text;
+      }
+    } else {
+      renderNotesList();
+    }
+  } else if (changes.noteFolders && !currentNoteId) {
     renderNotesList();
   }
 });
