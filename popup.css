@@ -9,8 +9,46 @@ body {
   background: #f7f5f0;
 }
 
+.hidden {
+  display: none !important;
+}
+
+/* Pop-out window: fill the window instead of the fixed popup size */
+body.popout {
+  width: auto;
+  min-height: 100vh;
+}
+
+body.popout .container {
+  max-width: 640px;
+  margin: 0 auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Push the footer to the bottom of the window when content is short */
+body.popout .footer {
+  margin-top: auto;
+}
+
+body.popout .notes-list,
+body.popout .events-list,
+body.popout .tasks-list {
+  max-height: none;
+}
+
+body.popout #noteText {
+  height: 260px;
+  resize: vertical;
+}
+
+body.popout .note-image-wrap img {
+  max-height: 360px;
+}
+
 .container {
-  padding: 10px;
+  padding: 10px 10px 0;
 }
 
 /* Tabs */
@@ -388,6 +426,15 @@ body {
   font-weight: 500;
 }
 
+.event-item .event-location {
+  font-size: 10px;
+  color: #888;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .event-view-icon {
   flex-shrink: 0;
   font-size: 11px;
@@ -507,9 +554,11 @@ body {
   margin-top: 4px;
 }
 
-#darkModeBtn {
+.top-bar-actions {
   grid-column: 3;
   justify-self: end;
+  display: flex;
+  gap: 6px;
 }
 
 /* Top bar */
@@ -634,13 +683,18 @@ body {
 }
 
 /* Footer */
+/* Stays pinned to the bottom edge while the content scrolls */
 .footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
   text-align: center;
   font-size: 10px;
   color: #aaa;
   margin-top: 10px;
-  padding-top: 8px;
+  padding: 8px 0 10px;
   border-top: 1px solid #eee;
+  background: #f7f5f0;
 }
 
 /* ---------------------------------------------------------
@@ -751,8 +805,20 @@ body.dark-mode .due-badge.overdue {
 body.dark-mode .footer {
   color: #777;
   border-top-color: #333;
+  background: #1c1c1c;
 }
 
-body.dark-mode .top-bar-title {
+body.dark-mode .top-bar-title,
+body.dark-mode .event-item .event-title {
   color: #eee;
+}
+
+body.dark-mode .event-item .event-time,
+body.dark-mode .event-item .event-location,
+body.dark-mode .note-timestamp {
+  color: #999;
+}
+
+body.dark-mode .task-edit-panel {
+  border-top-color: #3a3a3a;
 }
