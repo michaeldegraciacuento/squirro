@@ -9,8 +9,12 @@
   <div class="container">
    
     <div class="top-bar">
-       <h3>Squirro Hub</h3>
-      <button id="darkModeBtn" class="icon-btn" title="Toggle dark mode">🌙</button>
+      <div class="top-bar-spacer"></div>
+      <h3 class="top-bar-title">Squirro Hub</h3>
+      <div class="top-bar-actions">
+        <button id="popOutBtn" class="icon-btn" title="Open in a new window">⧉</button>
+        <button id="darkModeBtn" class="icon-btn" title="Toggle dark mode">🌙</button>
+      </div>
     </div>
 
     <div class="tabs">
@@ -32,6 +36,7 @@
       <div class="folder-row">
         <select id="noteFolderSelect"></select>
         <button id="renameNoteFolderBtn" class="icon-btn" title="Rename folder">✎</button>
+        <button id="deleteNoteFolderBtn" class="icon-btn" title="Delete folder (notes move to Uncategorized)">🗑️</button>
         <button id="addNoteFolderBtn" class="icon-btn" title="New folder">📁+</button>
       </div>
       <div id="newNoteFolderWrap" class="new-folder-input hidden">
@@ -107,6 +112,7 @@
       <div class="folder-row">
         <select id="taskFolderSelect"></select>
         <button id="renameTaskFolderBtn" class="icon-btn" title="Rename folder">✎</button>
+        <button id="deleteTaskFolderBtn" class="icon-btn" title="Delete folder (tasks move to Uncategorized)">🗑️</button>
         <button id="addTaskFolderBtn" class="icon-btn" title="New folder">📁+</button>
       </div>
       <div id="newTaskFolderWrap" class="new-folder-input hidden">
@@ -133,6 +139,7 @@
     <div class="footer">Created by Mac Story</div>
   </div>
 
+  <script src="ics.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
